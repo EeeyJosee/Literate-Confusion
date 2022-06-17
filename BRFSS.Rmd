@@ -1,0 +1,283 @@
+---
+title: "Research"
+output: html_document
+---
+
+### This section will focus on Data Preparation ### 
+
+1) load in the entire data set
+
+```{r}
+#install.packages("survey")
+#install.packages("expss")
+
+# [survey]/[expss] for the use of stratification and weighting [foreign] for loading in SAS transport files
+
+library("expss")
+library("survey")
+library("foreign")
+library("plyr")
+
+# read in the data, and view its structure
+LLCP2019 = read.xport("C:/Users/owner/Desktop/File/LLCP2019.xpt", na.strings=c(""))
+str(LLCP2019)
+head(LLCP2019)
+
+```
+
+2) create a data set containing all the states with the Sexual Orientation and Gender Identity (SOGI) in questionnaire
+
+```{r}
+# All states have a respective FIPS code; n = 32 
+state_code = c(2,4,8,9,10,12,13,66,15,16,19,20,22,24,27,28,30,36,37,39,40,44,45,47,48,49,50,51,53,54,55)
+
+# Our data will be a subset of the complete dataset
+data = LLCP2019[LLCP2019$X_STATE %in% state_code,]
+str(data)
+head(data)
+```
+
+3) of the states containing the SOGI, we want to further subset our data into a male dataset to analyze CVD given sexuality
+
+```{r}
+# data$SOMALE asks men about their sexuality, meaning NA values are non-male
+summary(as.factor(data$SOMALE))
+summary(as.factor(data$SEXVAR))
+
+# the 6 factors are (1)Gay, (2)Straight, (3)Bisexual, (4)Something Else, (7)I don't Know, (9)Refused
+male_data = data[data$SOMALE %in% c(1,2,3,4,7,9),]
+#male_data0 = data[data$SEXVAR %in% c(1),]
+
+#count(male_data0$SOMALE)
+#count(male_data$SOMALE)
+
+str(male_data)
+head(male_data); cat("\n")
+
+# the purpose of running the following code (means) is to verify our steps so far. Means cannot be computed for NA values (Non-male)    which means we should be expecting a mean value of ~ 2 (straight) for our male_data and NA for our data of genders on our             questionnaire
+
+print(paste0("The mean of SOMALE values in data is: ", mean(data$SOMALE))); cat("/n")
+print(paste0("The mean of SOMALE values in male_data is: ", round(mean(male_data$SOMALE))))
+
+```
+
+### Now we can run simple descriptives on our study set ###
+
+```{r}
+#### one way of doing it using library(survey) ####
+
+# Set options for allowing a single observation per stratum
+options(survey.lonely.psu = "adjust")
+
+# Create survey design
+brfssdsgn = svydesign(id=~1, strata = ~X_STSTR, weights = ~X_LLCPWT, data = male_data)
+
+# calculate percentages for male sexuality
+svymean(~factor(SOMALE), brfssdsgn, na.rm = TRUE)
+
+#q = count(male_data$SOMALE)[2]/sum(count(male_data$SOMALE)[2]); unlist(q)
+```
+
+1) Descriptives for Gay-identifying men
+
+```{r}
+#### second way of doing it using library(expss) ####
+
+# of the male data set, we want descriptives relative to Gay men
+male_data_gay = data[data$SOMALE %in% c(1),]
+
+#---------------------------------------------------------------------------------#
+# Overweight (X >= 3)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_gay$X_BMI5CAT,w=male_data_gay$X_LLCPWT)
+fre(male_data_gay$X_BMI5CAT)
+
+#---------------------------------------------------------------------------------#
+# Diabetes (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_gay$DIABETE4,w=male_data_gay$X_LLCPWT)
+fre(male_data_gay$DIABETE4)
+
+#---------------------------------------------------------------------------------#
+# High Cholesterol (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_gay$TOLDHI2,w=male_data_gay$X_LLCPWT)
+fre(male_data_gay$TOLDHI2)
+
+#---------------------------------------------------------------------------------#
+# Hypertension (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_gay$BPHIGH4,w=male_data_gay$X_LLCPWT)
+fre(male_data_gay$BPHIGH4)
+
+```
+
+2) Descriptives for Straight-identifying men
+
+```{r}
+
+# of the male data set, we want descriptives relative to Straight men
+male_data_straight = data[data$SOMALE %in% c(2),]
+
+#---------------------------------------------------------------------------------#
+# Overweight (X >= 3)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_straight$X_BMI5CAT,w=male_data_straight$X_LLCPWT)
+fre(male_data_straight$X_BMI5CAT)
+
+#---------------------------------------------------------------------------------#
+# Diabetes (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_straight$DIABETE4,w=male_data_straight$X_LLCPWT)
+fre(male_data_straight$DIABETE4)
+
+#---------------------------------------------------------------------------------#
+# High Cholesterol (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_straight$TOLDHI2,w=male_data_straight$X_LLCPWT)
+fre(male_data_straight$TOLDHI2)
+
+#---------------------------------------------------------------------------------#
+# Hypertension (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_straight$BPHIGH4,w=male_data_straight$X_LLCPWT)
+fre(male_data_straight$BPHIGH4)
+
+```
+
+3) Descriptives for Bi-sexual identifying men
+
+```{r}
+# of the male data set, we want descriptives relative to Bi-sexual men
+male_data_bi = data[data$SOMALE %in% c(3),]
+
+#---------------------------------------------------------------------------------#
+# Overweight (X >= 3)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_bi$X_BMI5CAT,w=male_data_bi$X_LLCPWT)
+fre(male_data_bi$X_BMI5CAT)
+
+#---------------------------------------------------------------------------------#
+# Diabetes (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_bi$DIABETE4,w=male_data_bi$X_LLCPWT)
+fre(male_data_bi$DIABETE4)
+
+#---------------------------------------------------------------------------------#
+# High Cholesterol (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_bi$TOLDHI2,w=male_data_bi$X_LLCPWT)
+fre(male_data_bi$TOLDHI2)
+
+#---------------------------------------------------------------------------------#
+# Hypertension (X == 1)
+# Weighted and then un-weighted descriptives
+
+fre(male_data_bi$BPHIGH4,w=male_data_bi$X_LLCPWT)
+fre(male_data_bi$BPHIGH4)
+
+```
+
+### Final Step Consists of creating a new variable for Metabolic Syndrome ###
+
+```{r}
+# Using our male data set, we'll create a dummy column with counting conditions (set all its values to 0)
+i = array(1:nrow(male_data))
+i = ifelse((i>=0),yes=0,no=0)
+
+# we will later use this as our metabolic syndrome column
+METSYND = i
+
+# We will count conditions including being overweight/obese, high cholesterol, hypertension, and diabetes
+i = ifelse((male_data$X_BMI5CAT>=3),yes=1,no=0)
+i = ifelse((male_data$DIABETE4==1),yes = i+1,no=i)
+i = ifelse((male_data$TOLDHI2==1),yes = i+1,no=i)
+i = ifelse((male_data$BPHIGH4==1),yes = i+1,no=i)
+
+# if 3 out of these 4 conditions are met, we will characterize this as having metabolic syndrome (1) else (0)
+METSYND = ifelse((i>=3),yes=1,no=0)
+
+# descriptives on points gathered by dummy column
+summary(factor(i))
+summary(factor(METSYND))
+
+#summary(factor(male_data$X_BMI5CAT))
+#summary(factor(male_data$DIABETE4))
+#summary(factor(male_data$TOLDHI2))
+#summary(factor(male_data$BPHIGH4))
+
+# Attach this column to our male data set, and we can run analyses of metabolic syndrome given sexual orientation
+male_data1 = cbind(male_data,METSYND)
+
+# define new data sets with corresponding metabolic syndrome variable
+male_data_gay1 = male_data1[male_data1$SOMALE %in% c(1),]
+male_data_straight1 = male_data1[male_data1$SOMALE %in% c(2),]
+male_data_bi1 = male_data1[male_data1$SOMALE %in% c(3),]
+
+#---------------------------------------------------------------------------------#
+# Gay men
+# un-weighted descriptives (lack of weighting for new variable)
+fre(male_data_gay1$METSYND)
+
+# Straight men
+# un-weighted descriptives
+fre(male_data_straight1$METSYND)
+
+# Bi men
+# un-weighted descriptives
+fre(male_data_bi1$METSYND)
+
+```
+
+
+
+
+
+-------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+```{r}
+#str(as.factor(data$X_STSTR))
+#str(as.factor(data$X_PSU))
+#str(as.factor(data$X_STATE))
+#str(as.factor(data$X_LLCPWT))
+#data$HAVARTH4
+
+#BRFSS = data[data$X_STATE == 22, ]
+
+# Set options for allowing a single observation per stratum
+#options(survey.lonely.psu = "adjust")
+
+# Create survey design
+#brfssdsgn = svydesign(id=~1, strata = ~X_STSTR, weights = ~X_LLCPWT, data = data)
+
+# calculate average number of physical healthy days
+# Variable to anlayze
+#svymean(~PHYSHLTH, brfssdsgn, na.rm = TRUE)
+
+# calculate percent in each arthritis category
+#svymean(~factor(HAVARTH4), brfssdsgn, na.rm = TRUE)
+
+```
+
+Writing data to TXT  file
+
+```{r}
+#write.table(data, file = "C:/Users/owner/Desktop/LLCP2019.txt", append = F, sep = " ", dec = " ", row.names = F, col.names = T)
+```
+

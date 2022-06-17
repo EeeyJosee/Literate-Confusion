@@ -1,0 +1,190 @@
+---
+title: "NHANES"
+output: html_document
+---
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                  Libraries and R Package Versions
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+```{r}
+
+# Load required packages
+library(survey)
+library(dplyr)
+
+# Display Version Information 
+cat("R package versions:\n")
+
+## R package versions:
+for (p in c("base", "survey","dplyr")) { 
+  cat(p, ": ", as.character(packageVersion(p)), "\n")
+}
+
+```
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                       Data Frame Function
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+```{r}
+
+# function to download the required survey cycles for a component file  
+downloadNHANES = function(fileprefix){
+  
+  print (fileprefix)
+  outdf <- data.frame(NULL)
+  
+  for (j in 1:length(letters)){
+    urlstring <- paste('https://wwwn.cdc.gov/nchs/nhanes/',yrs[j],'/',fileprefix,letters[j],'.XPT', sep='')
+    download.file(urlstring, tf <- tempfile(), mode="wb")
+    tmpframe <- foreign::read.xport(tf)
+    outdf <- bind_rows(outdf, tmpframe)
+  }
+  return(outdf)
+}
+
+```
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                Load in Components for all Cycles
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Needed Components
+
+    COTNAL (2007:2012) COT (2013:2018):        Cotinine (LBXCOT)
+    
+    DEMO                              :        Gender (RIAGENDR)   Age (RIDAGEYR)    Race/Ethnicity (RIDRETH1)    Race/Ethnicity (RIDRETH3 2011:2018)
+    
+    MCQ                               :        Angina (MCQ160D)
+    
+    SMQRTU                            :        Smoking (SMQ680 2007:2012, SMQ681 2013:2018)
+
+
+```{r}
+#                                                                 Gender, Age, Race + Ethnicity
+
+# Demographics involves RIDRETh1 and 3, where RIDRETH3 begins from 2011 onward
+yrs = c('2007-2008','2009-2010','2011-2012','2013-2014','2015-2016','2017-2018')
+letters = c('_e','_f','_g','_h','_i','_j')
+
+# Download data for each component
+DEMO = downloadNHANES('DEMO')
+
+# Weight variables 
+MEC12YR = 1/6 * DEMO$WTMEC2YR
+INT12YR = 1/6 * DEMO$WTINT2YR
+
+# Merge component files
+# DEMO[1] SEQN; DEMO[2] Cycle; DEMO[42] masked psuedo-PSU, DEMO[43] masked psuedo-stratum, DEMO[5] Gender; DEMO[6] Age; DEMO[9] Race/Ethnicity
+DEM = data.frame(DEMO[1], DEMO[2], MEC12YR, INT12YR, DEMO[42], DEMO[43], DEMO[5], DEMO[6], DEMO[9])
+
+```
+
+```{r}
+#                                                                           Cotinine
+
+# Specify the survey cycles required, with corresponding file suffixes
+# Years 2007-2012 and 2013-2018 have differing sizes of datasets. We will edit and combine them into a single component
+
+yrs = c('2007-2008','2009-2010','2011-2012')
+letters = c('_e','_f','_g')
+
+# Download data for COT component
+TEMP1 = downloadNHANES('COTNAL')
+TEMP1 = TEMP1[,-c(4:6)]
+
+#-------------------------------------------------------------------------------#
+
+yrs = c('2013-2014','2015-2016','2017-2018')
+letters = c('_h','_i','_j')
+
+# Download data for COT component
+TEMP2 = downloadNHANES('COT')
+TEMP2 = TEMP2[,-c(4:5)]
+
+COT = rbind(TEMP1, TEMP2)
+```
+
+```{r}
+#                                                                            Angina
+
+# Angina is nice and simple
+yrs = c('2007-2008','2009-2010','2011-2012','2013-2014','2015-2016','2017-2018')
+letters = c('_e','_f','_g','_h','_i','_j')
+
+MCQ = downloadNHANES('MCQ')
+```
+
+```{r}
+#                                                                            Smoking
+
+yrs = c('2007-2008','2009-2010','2011-2012')
+letters = c('_e','_f','_g')
+
+# MCQ measures smoking but the variable name changes from 2007-2012 and 2013-2018
+# 2007-2012 names the variable SMQ680
+TEMP1 = downloadNHANES('SMQRTU')
+
+# Resize the dataset in order to fuse both into one
+TEMP1 = TEMP1[,c(1:2)]
+# Rename SMQ680 to SMQ681 for a single smoking variable
+TEMP1 = rename(TEMP1, SMQ681 = SMQ680)
+
+#-------------------------------------------------------------------------------#
+
+yrs = c('2013-2014','2015-2016','2017-2018')
+letters = c('_h','_i','_j')
+
+# 2013-2018 names the variable SMQ681
+TEMP2 = downloadNHANES('SMQRTU')
+TEMP2 = TEMP2[,c(1:2)]
+
+SMQRTU = rbind(TEMP1, TEMP2)
+```
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                           Create Dataset Based off Variables of Interest
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+```{r}
+
+# Combine the variables of interest from each component into our dataset
+one_tmp = left_join(DEM, select(COT, "SEQN", LBXCOT), by="SEQN") %>% 
+  left_join(., select(MCQ, "SEQN", "MCQ160D"), by="SEQN") %>% 
+  left_join(., select(SMQRTU, "SEQN", "SMQ681"), by="SEQN")
+
+# Rename the columns to their respective variables
+data = one_tmp %>% rename(Cycle = SDDSRVYR, Interview_Weight = INT12YR, Sampling_Unit = SDMVPSU, Strata = SDMVSTRA, Exam_Weight = MEC12YR, Gender = RIAGENDR, Age = RIDAGEYR, Race = RIDRETH1, Cotinine = LBXCOT, Angina = MCQ160D, Smoking = SMQ681)
+
+# Lastly, remove observations that do not report, both values for Cotinine, and Smoking
+# two_tmp = df[ !is.na(df$Cotinine & df$Smoking), ]
+
+df = mutate(data,
+            # indicator for overall summary
+            one = 1,
+            # Responses for Cotinine and Smoking
+            # Count Number of Non-missing Cot/Smoking
+            n_smk = rowSums(!is.na(select(data, starts_with("Smoking")))),
+            n_cot = rowSums(!is.na(select(data, starts_with("Cotinine"))))) %>%
+     mutate(# Create 0/1 indicator for reported values
+            )
+
+```
+
+```{r}
+# Turn the datasets into Excel Files
+
+#library("openxlsx")
+
+#write.xlsx(one_tmp,"C:/Users/Owner/Desktop")
+
+#write.xlsx(two_tmp,"C:/Users/Owner/Desktop")
+
+#write.xlsx(df,"C:/Users/Owner/Desktop")
+
+```
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+                                                                            Analysis
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+```{r}
+
+#
+NHANES_all = svydesign(data=df, id=~Sampling_Unit, strata=~Strata, weights=~Exam_Weight, nest=T)
+NHANES = subset(NHANES_all, inAnalysis==1)
+
+```
+

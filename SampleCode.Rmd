@@ -1,0 +1,118 @@
+---
+title: "NHANES"
+output: html_document
+---
+
+Libraries and R Package Versions
+
+```{r}
+
+# Load required packages
+library(survey)
+library(dplyr)
+
+# Display Version Information 
+cat("R package versions:\n")
+
+## R package versions:
+for (p in c("base", "survey","dplyr")) { 
+  cat(p, ": ", as.character(packageVersion(p)), "\n")
+}
+
+```
+
+Data Frame Function
+
+```{r}
+
+# function to download the required survey cycles for a component file  
+downloadNHANES = function(fileprefix){
+  
+  print (fileprefix)
+  outdf <- data.frame(NULL)
+  
+  for (j in 1:length(letters)){
+    urlstring <- paste('https://wwwn.cdc.gov/nchs/nhanes/',yrs[j],'/',fileprefix,letters[j],'.XPT', sep='')
+    download.file(urlstring, tf <- tempfile(), mode="wb")
+    tmpframe <- foreign::read.xport(tf)
+    outdf <- bind_rows(outdf, tmpframe)
+  }
+  return(outdf)
+}
+
+```
+
+Data Preparation
+
+```{r}
+
+# Specify the survey cycles required, with corresponding file suffixes
+yrs = c('2015-2016')
+letters = c('_i')
+
+# Download data for each component
+# Demographic (DEMO)
+DEMO <- downloadNHANES('DEMO')
+
+# BPX blood pressure exam 
+BPX <-  downloadNHANES('BPX')
+
+# BPQ blood pressure questionnaire 
+BPQ <-  downloadNHANES('BPQ')
+
+# Merge component files
+# Keep all records in DEMO, even if that SEQN does not match to BPQ or BPX files
+one_tmp = left_join(DEMO, select(BPX, "SEQN", starts_with("BPXSY"), starts_with("BPXDI")), by="SEQN") %>% left_join(., select(BPQ, "SEQN", "BPQ050A") , by="SEQN")
+
+```
+
+```{r}
+df = mutate(one_tmp, 
+              # create indicator for overall summary
+              one = 1,
+            
+              # Hypertension prevalence
+              # Count Number of Non-missing SBPs & DBPs
+              n_sbp = rowSums(!is.na(select(one_tmp, starts_with("BPXSY")))),
+              n_dbp = rowSums(!is.na(select(one_tmp, starts_with("BPXDI"))))) %>%
+              
+     # Set DBP Values Of 0 To Missing For Calculating Average
+     mutate_at(vars(starts_with("BPXDI")), list(~na_if(., 0))) %>%
+       
+     mutate( # Calculate Mean Systolic and Diastolic (over non-missing values) 
+              mean_sbp = rowMeans(select(., starts_with("BPXSY")), na.rm=TRUE),
+              mean_dbp = rowMeans(select(., starts_with("BPXDI")), na.rm=TRUE),
+              
+              # Create 0/1 indicator for hypertension
+              # "Old" Hypertensive Category variable: taking medication or measured BP > 140/90 
+              # as used in NCHS Data Brief No. 289
+              # Variable bpq050a: now taking prescribed medicine for hypertension, 1 = yes 
+              htn_old = case_when( mean_sbp>=140 | mean_dbp>=90 | BPQ050A ==1 ~ 1,
+                                 n_sbp > 0 & n_dbp > 0 ~ 0),
+              
+              # for reference: "new" definition of hypertension prevalence, based on taking medication or measured BP > 130/80 
+              # From 2017 ACC/AHA hypertension guidelines 
+              # Not used in Data Brief No. 289
+              htn_new = case_when( mean_sbp>=130 | mean_dbp>=80 | BPQ050A ==1 ~ 1,
+                                 n_sbp > 0 & n_dbp > 0 ~ 0),
+              
+              # Create race and Hispanic ethnicity categories for oversampling analysis 
+              # combined Non-Hispanic white and Non-Hispanic other and multiple races, to approximate the sampling domains
+              race1 = factor(c(3, 3, 4, 1, NA, 2, 4)[RIDRETH3],
+                      labels = c('NH Black','NH Asian', 'Hispanic', 'NH White and Other')),
+              
+              # Create race and Hispanic ethnicity categories for hypertension analysis 
+              raceEthCat = factor(c(4, 4, 1, 2, NA, 3, 5)[RIDRETH3],
+                      labels = c('NH White', 'NH Black', 'NH Asian', 'Hispanic', 'NH Other/Multiple')),
+              
+              # Create age categories for adults aged 18 and over: ages 18-39, 40-59, 60 and over
+              ageCat_18 = cut(RIDAGEYR,
+                     breaks = c(17, 39, 59, Inf),
+                     labels = c('18-39','40-59','60+')),
+              
+              #  Define sub-population of interest: non-pregnant adults aged 18 and over who have at least 1 valid systolic OR diastolic BP measure 
+              inAnalysis = (RIDAGEYR >=18 & ifelse(is.na(RIDEXPRG), 0, RIDEXPRG) != 1 & (n_sbp > 0 | n_dbp > 0)) 
+           )
+
+```
+
